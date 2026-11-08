@@ -1,0 +1,17 @@
+# Local builds, captures and diagnostics
+outputs/
+build/
+.gradle/
+local.properties
+*.apk
+*.aab
+*.idsig
+*.dex
+*.class
+*.keystore
+*.jks
+
+# Editor and OS state
+.idea/
+.DS_Store
+Thumbs.db

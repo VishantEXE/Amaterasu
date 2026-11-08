@@ -1,0 +1,14 @@
+<resources>
+    <color name="background">#FAF5EF</color>
+    <color name="surface">#FFFDF9</color>
+    <color name="surface_soft">#F1E8DF</color>
+    <color name="outline">#E3D5CC</color>
+    <color name="ink">#2E2321</color>
+    <color name="muted">#77655F</color>
+    <color name="accent">#B33D33</color>
+    <color name="on_accent">#FFF8F3</color>
+    <color name="accent_soft">#F8DDD5</color>
+    <color name="danger">#9E2723</color>
+    <color name="danger_soft">#FADEDA</color>
+    <color name="icon_background">#8A3028</color>
+</resources>
