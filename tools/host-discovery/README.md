@@ -1,13 +1,13 @@
 # Amaterasu Android host
 
-Amaterasu registers the GameStream discovery service with Android NSD and answers compatible Moonlight clients' HTTP server information requests. It listens on Wi-Fi IPv4 ports 47989 (HTTP) and 47984 (mutual TLS). It persists its host UUID, Android Keystore identity and one paired client certificate. Live screen/audio sharing runs in a foreground service when switching to a game.
+Amaterasu registers the GameStream discovery service with Android NSD and answers compatible Moonlight clients' HTTP server information requests. It listens on Wi-Fi IPv4 ports 47989 (HTTP) and 47984 (mutual TLS). It persists its host UUID, Android Keystore identity and paired client certificates across network changes. Live screen/audio sharing runs in a foreground service when switching to a game.
 
 Build from PowerShell 7 with the same Android SDK, JDK and debug keystore as the [capture probe](../capture-probe/README.md), plus Android NDK, SDK CMake 3.22.1, FFmpeg with OpenH264 and libopus, the [pinned ENet checkout](https://github.com/cgutman/enet/tree/aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1), and [Opus v1.5.2](https://github.com/xiph/opus/tree/ddbe48383984d56acd9e1ab6a090c54ca6b735a6). Use a dedicated output directory.
 
 ```powershell
 ./tools/host-discovery/build-fixture.ps1 -Sdk $sdk -Jdk $jdk -Ndk $ndk -Enet $enet -NanoRs $nanors -Opus $opus -Fsr $fsr -Ffmpeg $ffmpeg -Output $output -SideBySide
 # After the user approves this build:
-adb install -r (Join-Path $output 'Amaterasu-0.6.1.apk')
+adb install -r (Join-Path $output 'Amaterasu-0.6.7.apk')
 adb shell am start -n dev.questheld.host.pacing/dev.questheld.host.HostActivity
 ```
 
@@ -16,6 +16,8 @@ The idle diagnostic fixture uses **1080p, 60 FPS, H.264 and stereo**. Select **A
 For live mode, choose the host codec, bitrate limit and FSR setting before selecting **Start sharing** and authorizing Android's prompts. Then open **Screen** in Moonlight at **60 FPS** (or 120 when enabled), stereo, and the matching output resolution. HEVC mode supports hardware HEVC with H.264 fallback. Use Auto or HEVC in Moonlight to negotiate HEVC. The host and encoder bitrate limits apply alongside Moonlight's requested bitrate. The UI range is 10–200 Mbps and defaults to 20 Mbps.
 
 FSR off uses a GPU pass-through at 1080p. FSR on offers **720p → 1080p**, **1080p → 3840×2160**, and in version 0.4 **1080p → 2560×1440**, through AMD EASU and RCAS before encoding. Select the matching output resolution in Moonlight. Shader initialization failure ends startup with a logged error. Capability checks do not qualify sustained 4K performance.
+
+Experimental AV1 uses an Android hardware encoder with AV1 Main 8-bit surface input for the selected output mode. Use an AV1-capable client with AV1 or Auto selected. Auto can negotiate HEVC or H.264 where supported. The Odin2 Portal tested here exposes AV1 decoders only, so its AV1 setting is disabled.
 
 The foreground service remains active when switching to a game or video. One live stream is supported per capture consent. Stop through the foreground notification or host activity. Android permits playback capture only for eligible apps, and the audio channel carries silence when capture is unavailable.
 
@@ -31,9 +33,9 @@ Timing CSVs are automatically saved under the app's external files/diagnostics d
 
 Logs retain source latches, scheduled encoder inputs, encoder outputs, queue resets, and video send start/end records. The writer is asynchronous and bounded. Up to five sessions are kept, with a 16 MiB event limit per session and a dropped-row count.
 
-From a PC on the LAN, request `http://<host-ip>:47989/serverinfo` to confirm that the host is reachable. Public discovery reports an unpaired state. Authenticated HTTPS reports the pairing state of the client certificate. Pending pairing expires after 90 seconds and a successful new pairing replaces the single saved peer.
+From a PC on the LAN, request `http://<host-ip>:47989/serverinfo` to confirm that the host is reachable. Public discovery reports an unpaired state. Authenticated HTTPS reports the pairing state of the client certificate. Pending pairing expires after 90 seconds. A successful new pairing adds the client alongside any saved clients.
 
-Version 0.6 adds supported Android lifecycle/notification/recovery controls and public local-only hotspot setup. See [validation and known limitations](../../docs/VALIDATION.md). Keep LAN selected when both devices join an external/mobile hotspot; select Direct Wi-Fi Hotspot only when this Android host creates the AP. The new APK is a development candidate, not a measured 4K stability result.
+Version 0.6 adds supported Android lifecycle/notification/recovery controls and Android system hotspot setup. See [validation and known limitations](../../docs/VALIDATION.md). Keep LAN selected when both devices join an external/mobile hotspot; select Direct Wi-Fi Hotspot only when you enable the Wi-Fi hotspot in the host device’s Android settings. The new APK is a development candidate, not a measured 4K stability result.
 
 ## Dependency setup (Windows)
 

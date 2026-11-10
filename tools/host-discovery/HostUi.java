@@ -34,8 +34,9 @@ final class HostUi extends LinearLayout {
         void pair(String pin);
         void copyAddress();
         default void connectionModeChanged() {}
-        default void hotspot(boolean start) {}
         default void hotspotSettings() {}
+        default void liveStats() {}
+        default boolean supportsAv1(StreamSettings settings) { return false; }
         default void dimPermission() {}
         default void restoreScreen() {}
         default void batterySettings() {}
@@ -51,9 +52,8 @@ final class HostUi extends LinearLayout {
     private Button brightnessPermission;
     private TextView dimHint;
     private boolean brightnessAllowed, dimPermissionInitialized, updatingDimState;
-    private Button connectionMode, hotspotStart, hotspotStop, systemHotspot, reveal;
-    private TextView hotspotInfo, liveStatus, connectionHelp;
-    private boolean revealPassword;
+    private Button connectionMode, systemHotspot, copyHotspotAddress, statsButton;
+    private TextView hotspotInfo, liveStatus, connectionHelp, pairingStatus;
     private final SeekBar bitrate;
     private final TextView status, statusTag, statusBody, addressText, message, resolutionValue, resolutionHint;
     private final TextView bitrateValue, moonlightSummary, moonlightDetail, pairChevron, pairFeedback, settingsHint;
@@ -62,7 +62,9 @@ final class HostUi extends LinearLayout {
     private final View addressRow;
     private final EditText pin;
     private int selectedScale;
-    private boolean selectedHevc;
+    private int selectedCodec;
+    private Button av1;
+    private TextView codecHint;
     private boolean busy;
     private State currentState = State.READY;
     private String stateKey = "";
@@ -81,7 +83,9 @@ final class HostUi extends LinearLayout {
         wide=getResources().getConfiguration().screenWidthDp >= 760;
         selectedScale=prefs.getInt("fsrScale",0);
         if(selectedScale<0 || selectedScale>2) selectedScale=0;
-        selectedHevc=prefs.getInt("codec",0)==1;
+        int savedCodec=prefs.getInt("codec",StreamSettings.H264);
+        selectedCodec=savedCodec==StreamSettings.HEVC || savedCodec==StreamSettings.AV1
+                ?savedCodec:StreamSettings.H264;
         setOrientation(VERTICAL);
         setBackgroundColor(background);
         int edge=wide?32:20;
@@ -140,6 +144,10 @@ final class HostUi extends LinearLayout {
         addressRow=ip; margin(hero,ip,20,0);
         TextView local=text("Wi-Fi or mobile hotspot. No internet needed.",12,muted,false);
         margin(hero,local,12,0);
+        statsButton=button("Live stats",false);
+        statsButton.setVisibility(GONE);
+        statsButton.setOnClickListener(v->actions.liveStats());
+        margin(hero,statsButton,8,0);
         message=text("",13,danger,false); message.setVisibility(GONE);
         message.setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);
         margin(hero,message,12,0);
@@ -159,12 +167,13 @@ final class HostUi extends LinearLayout {
                 }).setNegativeButton("Cancel",null).show();
         });
         hotspotInfo=text("",12,muted,false); margin(connection,hotspotInfo,4,8);
-        hotspotStart=button("Start local hotspot",false); hotspotStart.setOnClickListener(v->actions.hotspot(true)); margin(connection,hotspotStart,4,4);
-        hotspotStop=button("Stop local hotspot",false); hotspotStop.setOnClickListener(v->actions.hotspot(false)); margin(connection,hotspotStop,4,4);
         systemHotspot=button("Android hotspot settings",false); systemHotspot.setOnClickListener(v->actions.hotspotSettings()); margin(connection,systemHotspot,4,4);
-        reveal=button("Reveal / hide password",false);
-        reveal.setOnClickListener(v->{revealPassword=!revealPassword; actions.connectionModeChanged();}); margin(connection,reveal,4,4);
+        copyHotspotAddress=button("Copy host address",false);
+        copyHotspotAddress.setVisibility(GONE);
+        copyHotspotAddress.setOnClickListener(v->actions.copyAddress());
+        margin(connection,copyHotspotAddress,4,4);
         connectionHelp=text("",12,muted,false); margin(connection,connectionHelp,10,0);
+        pairingStatus=text("",12,accent,true); margin(connection,pairingStatus,8,0);
         liveStatus=text("Server stopped",12,accent,true); margin(connection,liveStatus,12,0);
         addCard(left,connection);
 
@@ -232,10 +241,12 @@ final class HostUi extends LinearLayout {
         margin(quality,text("Video codec",14,ink,true),14,10);
         LinearLayout codecGroup=row(); codecGroup.setPadding(dp(4),dp(4),dp(4),dp(4));
         codecGroup.setBackground(shape(soft,18,0));
-        h264=button("H.264",false); hevc=button("HEVC",false);
+        h264=button("H.264",false); hevc=button("HEVC",false); av1=button("AV1",false);
         codecGroup.addView(h264,new LayoutParams(0,dp(48),1));
-        codecGroup.addView(hevc,new LayoutParams(0,dp(48),1)); quality.addView(codecGroup);
-        margin(quality,text("HEVC is more efficient. H.264 offers wider compatibility.",12,muted,false),10,0);
+        codecGroup.addView(hevc,new LayoutParams(0,dp(48),1));
+        codecGroup.addView(av1,new LayoutParams(0,dp(48),1)); quality.addView(codecGroup);
+        codecHint=text("",12,muted,false);
+        margin(quality,codecHint,10,0);
         addCard(right,quality);
 
         LinearLayout bandwidth=card(surface);
@@ -295,7 +306,9 @@ final class HostUi extends LinearLayout {
 
         fsr.setOnCheckedChangeListener((v,checked)->{prefs.edit().putBoolean("fsr",checked).apply(); updateSelection();});
         highRefresh.setOnCheckedChangeListener((v,checked)->{prefs.edit().putBoolean("highRefresh",checked).apply(); updateSelection();});
-        h264.setOnClickListener(v->selectCodec(false)); hevc.setOnClickListener(v->selectCodec(true));
+        h264.setOnClickListener(v->selectCodec(StreamSettings.H264));
+        hevc.setOnClickListener(v->selectCodec(StreamSettings.HEVC));
+        av1.setOnClickListener(v->selectCodec(StreamSettings.AV1));
         bitrate.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar bar,int progress,boolean user){
                 bitrateValue.setText((10+progress)+" Mbps");
@@ -331,14 +344,18 @@ final class HostUi extends LinearLayout {
             :busy?"Dimming is inactive. Stop sharing, then allow brightness control in Android settings."
             :"Dimming is inactive until you allow brightness control in Android’s Modify system settings screen.");
     }
-    boolean revealPassword() { return revealPassword; }
     void connectionDetail(String value,String session) {
         hotspotInfo.setText(value); liveStatus.setText(session);
-        hotspotStart.setVisibility(directHotspot()?VISIBLE:GONE);
-        hotspotStop.setVisibility(directHotspot()?VISIBLE:GONE);
         systemHotspot.setVisibility(directHotspot()?VISIBLE:GONE);
-        reveal.setVisibility(directHotspot()?VISIBLE:GONE);
-        connectionHelp.setText(directHotspot()?"Connect your device to the shown SSID, keep the connection without internet, then add the host address in Moonlight if discovery is unavailable. For a system hotspot, find its SSID/password in Android settings and choose 5 GHz when available.":"Open Moonlight on the same LAN. Select Amaterasu or add the host address above.");
+        connectionHelp.setText(directHotspot()
+                ?"Choose 5 GHz if available and turn off automatic hotspot shutdown in Android settings. Join that Wi-Fi network on your receiving device."
+                :"Open Moonlight or Artemis on the same LAN. Select Amaterasu or add the host address above.");
+    }
+
+    void connectionSetup(String address, String pairing) {
+        copyHotspotAddress.setVisibility(directHotspot() && address!=null?VISIBLE:GONE);
+        if(address!=null) copyHotspotAddress.setText("Copy host address · "+address);
+        pairingStatus.setText(pairing);
     }
 
     void mediaStatus(boolean streaming) {
@@ -348,14 +365,18 @@ final class HostUi extends LinearLayout {
         statusBody.setText(streaming?"Sending your screen to the connected device. Audio is captured from supported apps.":"Open Amaterasu in Moonlight and launch Screen. You can switch back to your game.");
     }
 
-    StreamSettings settings() { return new StreamSettings(fsr.isChecked(),selectedScale,selectedHevc,10+bitrate.getProgress(),highRefresh.isChecked()?120:60); }
+    StreamSettings settings() { return settings(selectedCodec); }
+    private StreamSettings settings(int codec) {
+        return new StreamSettings(fsr.isChecked(),selectedScale,codec,10+bitrate.getProgress(),highRefresh.isChecked()?120:60);
+    }
 
     void setState(State state,String ip,String detail,StreamSettings active) {
-        String key=state+"|"+ip+"|"+detail+"|"+(active==null?"":active.outputWidth()+":"+active.fps);
+        String key=state+"|"+directHotspot()+"|"+ip+"|"+detail+"|"+(active==null?"":active.outputWidth()+":"+active.fps);
         if(key.equals(stateKey)) return;
         stateKey=key; currentState=state;
+        statsButton.setVisibility(state==State.SHARING?VISIBLE:GONE);
         busy=state==State.SHARING || state==State.STARTING;
-        connectionMode.setEnabled(!busy); hotspotStart.setEnabled(!busy); hotspotStop.setEnabled(!busy); systemHotspot.setEnabled(!busy);
+        connectionMode.setEnabled(!busy); systemHotspot.setEnabled(!busy);
         muteHost.setEnabled(!busy); updateDimmingControls();
         fsr.setEnabled(!busy); highRefresh.setEnabled(!busy); bitrate.setEnabled(!busy);
         fsr.setAlpha(busy?.5f:1); highRefresh.setAlpha(busy?.5f:1); bitrate.setAlpha(busy?.5f:1);
@@ -381,7 +402,9 @@ final class HostUi extends LinearLayout {
                 statusBody.setText("Preparing screen and device audio sharing."); primary.setText("Starting…");
             } else if(state==State.NO_NETWORK) {
                 statusTag.setText("●  CONNECTION NEEDED"); status.setText("Join your network.");
-                statusBody.setText("Connect both devices to the same Wi-Fi network or mobile hotspot."); primary.setText("Check connection");
+                statusBody.setText(directHotspot()?"Turn on the host’s Wi-Fi hotspot in Android settings."
+                        :"Connect both devices to the same Wi-Fi network or mobile hotspot.");
+                primary.setText("Check connection");
             } else if(state==State.ERROR) {
                 statusTag.setText("●  NEEDS ATTENTION"); status.setText("Let’s try that again.");
                 statusBody.setText("Check the message below, adjust your settings, then start sharing."); primary.setText("Start sharing");
@@ -398,9 +421,9 @@ final class HostUi extends LinearLayout {
         if(success) pin.setText("");
     }
 
-    private void selectCodec(boolean value) {
+    private void selectCodec(int value) {
         if(busy) return;
-        selectedHevc=value; prefs.edit().putInt("codec",value?1:0).apply(); updateSelection();
+        selectedCodec=value; prefs.edit().putInt("codec",value).apply(); updateSelection();
     }
     private void selectResolution() {
         if(busy || !fsr.isChecked()) return;
@@ -417,13 +440,21 @@ final class HostUi extends LinearLayout {
         resolutionHint.setText(fsr.isChecked()?SCALE_DETAILS[index]:"Native capture · enable FSR to upscale");
         resolutionRow.setEnabled(!busy && fsr.isChecked()); resolutionRow.setAlpha(busy || !fsr.isChecked()?.5f:1);
         resolutionRow.setContentDescription("FSR output resolution, "+SCALE_LABELS[index]);
-        styleCodec(h264,!selectedHevc); styleCodec(hevc,selectedHevc);
+        styleCodec(h264,selectedCodec==StreamSettings.H264);
+        styleCodec(hevc,selectedCodec==StreamSettings.HEVC);
+        styleCodec(av1,selectedCodec==StreamSettings.AV1);
+        boolean av1Available=actions.supportsAv1(settings(StreamSettings.AV1));
+        av1.setEnabled(!busy && av1Available);
+        av1.setAlpha(av1.isEnabled()?1:.5f);
+        codecHint.setText(av1Available?"AV1 (Experimental) requires a compatible client. Auto can fall back to HEVC or H.264."
+                :"AV1 (Experimental) needs a hardware encoder for this resolution and frame rate.");
         updateMatch(settings());
     }
     private void updateMatch(StreamSettings selected) {
         String resolution=selected.outputWidth()==3840?"4K":selected.outputWidth()==2560?"1440p":"1080p";
         moonlightSummary.setText("Set Moonlight to "+resolution+" · "+selected.fps+" FPS"+(selected.fps==120?" (Experimental)":""));
-        moonlightDetail.setText((selected.hevc?"HEVC / Auto":"H.264")+" · stereo audio");
+        moonlightDetail.setText(StreamSettings.codecName(selected.codec)
+                +(selected.codec==StreamSettings.H264?"":" / Auto")+" · stereo audio");
     }
     private void styleCodec(Button view,boolean selected) {
         view.setSelected(selected); view.setTextColor(selected?accent:muted);
@@ -461,7 +492,7 @@ final class HostUi extends LinearLayout {
     }
     private int color(int id) { return getContext().getColor(id); }
     private String versionLabel() {
-        String version="0.6.1";
+        String version="0.6.7";
         try {
             android.content.pm.PackageInfo info=getContext().getPackageManager().getPackageInfo(getContext().getPackageName(),0);
             if(info!=null && info.versionName!=null) version=info.versionName;

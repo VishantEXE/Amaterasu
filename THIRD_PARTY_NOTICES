@@ -5,8 +5,8 @@ The following components retain their original licenses and copyright notices.
 This file includes the full applicable shipped third-party license texts.
 
 Runtime inventory: Android framework APIs and platform cryptography/MediaCodec are
-provided by Android, not copied into this APK. No third-party Java/Kotlin runtime
-library or font is bundled. The sun vector and native UI are project assets.
+provided by Android, not copied into this APK.
+No third-party font is bundled. The sun vector and native UI are project assets.
 The custom launcher/header illustration was supplied by the user as
 "Amaterasu Beneath a Crimson Sun.png" on 2026-11-08, authorized for app use.
 The project owner confirmed public redistribution under GPL-3.0-only on

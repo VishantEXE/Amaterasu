@@ -89,7 +89,10 @@ public final class UiRender {
                 if(mode.equals("portrait-power-granted"))view.setDimmingPermission(true);
                 if(mode.equals("landscape-sharing")) { view.setState(HostUi.State.SHARING,"192.168.1.42",null,view.settings()); view.mediaStatus(true); }
                 if(mode.equals("landscape-120")) { android.widget.Switch fps=(android.widget.Switch)field("highRefresh"); fps.setChecked(true); fps.jumpDrawablesToCurrentState(); }
-                if(mode.equals("portrait-hotspot"))view.connectionDetail("Local-only hotspot ready · no internet\nSSID: AndroidShare_Example\nPassword: ••••••••\n5 GHz supported by hardware; Android chooses the band.","SERVER READY");
+                if(mode.equals("portrait-hotspot")) {
+                    view.connectionDetail("Android hotspot detected. Find the Wi-Fi name and password in Android settings.","SERVER READY");
+                    view.connectionSetup("192.0.2.42","Paired device saved");
+                }
                 if(mode.equals("portrait-offline"))view.setState(HostUi.State.NO_NETWORK,null,null,null);
                 view.measure(android.view.View.MeasureSpec.makeMeasureSpec(hw.getScreenWidth(),android.view.View.MeasureSpec.EXACTLY),
                         android.view.View.MeasureSpec.makeMeasureSpec(hw.getScreenHeight(),android.view.View.MeasureSpec.EXACTLY));
@@ -151,7 +154,7 @@ public final class UiRender {
         fps.setChecked(true); require(view.settings().fps==120,"120 FPS toggle failed"); fps.setChecked(false);
         android.widget.Button avc=(android.widget.Button)field("h264"), hevc=(android.widget.Button)field("hevc");
         avc.setSoundEffectsEnabled(false);hevc.setSoundEffectsEnabled(false);
-        avc.performClick();require(!view.settings().hevc,"H.264 selection failed"); hevc.performClick();require(view.settings().hevc,"HEVC selection failed");
+        avc.performClick();require(view.settings().codec==StreamSettings.H264,"H.264 selection failed"); hevc.performClick();require(view.settings().codec==StreamSettings.HEVC,"HEVC selection failed");
         android.widget.EditText pin=(android.widget.EditText)field("pin"); android.widget.Button pair=(android.widget.Button)field("pairButton");
         pin.setText("12");require(!pair.isEnabled(),"Incomplete PIN accepted"); pin.setText("1234");require(pair.isEnabled(),"Four-digit PIN rejected");
         view.pairFeedback("PIN submitted. Finish connecting in Moonlight.",true); require(pin.getText().length()==0,"PIN not cleared");

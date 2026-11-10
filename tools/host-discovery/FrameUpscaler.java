@@ -59,7 +59,7 @@ final class FrameUpscaler implements AutoCloseable {
                   int outputWidth, int outputHeight, boolean fsrEnabled, int fps,
                   SessionDiagnostics diagnostics) throws IOException {
         this(assets, encoderInput, inputWidth, inputHeight, outputWidth, outputHeight,
-                fsrEnabled, fps, diagnostics, outputWidth >= 3840 ? 512 : 128);
+                fsrEnabled, fps, diagnostics, outputWidth >= 3840 ? 256 : 128);
     }
 
     // The explicit strip size also permits reference-image checks against a full-height pass.

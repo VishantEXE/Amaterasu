@@ -201,6 +201,9 @@ final class FixtureMedia implements AutoCloseable {
         int oversizedFrames = 0;
         int lateFrames = 0;
         int lateInWindow = 0;
+        long windowBytes = 0, previousEncoded = 0, previousQueueDrops = 0;
+        long previousOversized = 0, previousAudioDrops = 0;
+        int previousFrames = 0, previousLate = 0;
         CongestionGovernor governor = new CongestionGovernor();
         boolean waitForKeyframe = true;
         try (SessionDiagnostics diagnostics = new SessionDiagnostics(diagnosticsDirectory,
@@ -240,6 +243,7 @@ final class FixtureMedia implements AutoCloseable {
                                 sendVideo(videoTarget, frame.annexB, frame.size, ++frameNumber, ticks, frame.keyframe);
                                 diagnostics.frame("send_end", frame.id, frame.ptsUs, frame.size, frameNumber);
                                 frames++;
+                                windowBytes += frame.size;
                                 if (frames == 1) SessionState.emit(eventEpoch, SessionState.Stage.STREAMING);
                                 waitForKeyframe = false;
                                 lastPts = frame.ptsUs;
@@ -251,6 +255,22 @@ final class FixtureMedia implements AutoCloseable {
                     if (frame == null) LockSupport.parkNanos(1_000_000L);
                     long now = SystemClock.elapsedRealtime();
                     if (now - lastReport >= 2000) {
+                        long encoded = capture.encodedFrames();
+                        long queueDrops = capture.videoDrops();
+                        long oversized = oversizedFrames + capture.oversizedFrames();
+                        long audioDrops = capture.audioDrops();
+                        SessionState.report(eventEpoch, new LiveStats(now, now - lastReport,
+                                encoded - previousEncoded, frames - previousFrames, windowBytes,
+                                queueDrops - previousQueueDrops, lateFrames - previousLate,
+                                oversized - previousOversized, audioDrops - previousAudioDrops,
+                                capture.activeBitrate(), settings.bitrateMbps, profile.fps));
+                        previousEncoded = encoded;
+                        previousFrames = frames;
+                        previousQueueDrops = queueDrops;
+                        previousLate = lateFrames;
+                        previousOversized = oversized;
+                        previousAudioDrops = audioDrops;
+                        windowBytes = 0;
                         Log.i(TAG, "Live sent videoFrames=" + frames + " audioPackets=" + liveAudioSent
                                 + " audioQueueDrops=" + capture.audioDrops() + " oversizedFrames=" + (oversizedFrames + capture.oversizedFrames())
                                 + " lateFrames=" + lateFrames + " videoQueueDrops=" + capture.videoDrops());

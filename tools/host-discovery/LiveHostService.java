@@ -91,6 +91,11 @@ public final class LiveHostService extends Service {
     @Override public void onTrimMemory(int level){
         super.onTrimMemory(level);
         Log.w(TAG,"Android memory-pressure callback level="+level+" state="+sessionStatus);
+        // UI_HIDDEN describes visibility. It is expected every time a game opens.
+        if(level==TRIM_MEMORY_RUNNING_LOW || level==TRIM_MEMORY_RUNNING_CRITICAL || level>=TRIM_MEMORY_BACKGROUND) {
+            SessionState.noteMemoryPressure();
+            if(memory!=null) memory.recordPressure(level);
+        }
     }
     private void releaseWake(){ if(wake!=null){ if(wake.isHeld()) wake.release(); wake=null; } }
     @Override public void onDestroy(){
@@ -101,7 +106,6 @@ public final class LiveHostService extends Service {
         cleanup("projection",()->{ if(projection!=null) projection.stop(); });
         cleanup("host overrides",()->{ if(overrides!=null) overrides.restoreAll(); });
         cleanup("CPU wake lock",this::releaseWake);
-        cleanup("hotspot",()->{ if(direct) DirectHotspot.get(this).stop(); });
         cleanup("notification",()->stopForeground(STOP_FOREGROUND_REMOVE));
         getSharedPreferences("session-state",0).edit().putBoolean("open",false).commit();
         super.onDestroy();

@@ -45,6 +45,8 @@ final class DiscoveryServer implements AutoCloseable {
                     File diagnosticsDirectory, Runnable finished)
             throws IOException, GeneralSecurityException {
         this.pairing = pairing;
+        boolean hevc = projection != null && settings.supports(StreamSettings.HEVC);
+        boolean av1 = projection != null && settings.supports(StreamSettings.AV1);
         serverInfo = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                 + "<root status_code=\"200\">"
                 + "<hostname>" + escapeXml(name) + "</hostname>"
@@ -52,9 +54,10 @@ final class DiscoveryServer implements AutoCloseable {
                 + "<uniqueid>" + id + "</uniqueid>"
                 + "<HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort>"
                 + "<mac>00:00:00:00:00:00</mac><LocalIP>" + address.getHostAddress() + "</LocalIP>"
-                + "<MaxLumaPixelsHEVC>" + (settings.supportsHevc() ? 1869449984 : 0) + "</MaxLumaPixelsHEVC>"
+                + "<MaxLumaPixelsHEVC>" + (hevc ? 1869449984 : 0) + "</MaxLumaPixelsHEVC>"
                 + "<GfeVersion>3.23.0.0</GfeVersion>"
-                + "<ServerCodecModeSupport>" + (settings.supportsHevc() ? 257 : 1) + "</ServerCodecModeSupport>";
+                + "<ServerCodecModeSupport>" + (1 | (hevc ? 0x100 : 0) | (av1 ? 0x10000 : 0))
+                + "</ServerCodecModeSupport>";
         tls = (SSLServerSocket) identity.tls(pairing).getServerSocketFactory().createServerSocket();
         listener = new ServerSocket();
         try {

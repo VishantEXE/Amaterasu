@@ -6,8 +6,10 @@ import java.util.ArrayList;
 final class VideoBufferPool {
     static final int MAX_RETAINED_BYTES = 2 * 1024 * 1024;
     static final int MAX_POOLED_BUFFER = 1024 * 1024;
+    private static final int PRESSURE_RETAINED_BYTES = 512 * 1024;
     private final ArrayList<byte[]> free = new ArrayList<>(6);
     private int retained;
+    private int retainedLimit = MAX_RETAINED_BYTES;
 
     synchronized byte[] acquire(int size) {
         if (size <= 0) throw new IllegalArgumentException("Invalid access unit size");
@@ -26,14 +28,19 @@ final class VideoBufferPool {
     }
 
     synchronized void release(byte[] buffer) {
-        if (buffer.length > MAX_POOLED_BUFFER) return;
+        if (buffer.length > MAX_POOLED_BUFFER || buffer.length > retainedLimit) return;
         // Content changes can replace tiny menu frames with larger gameplay frames.
         // Keep recently returned buffers instead of letting six small ones pin the cache.
-        while (!free.isEmpty() && (free.size() >= 6 || retained + buffer.length > MAX_RETAINED_BYTES)) {
+        while (!free.isEmpty() && (free.size() >= 6 || retained + buffer.length > retainedLimit)) {
             retained -= free.remove(0).length;
         }
         free.add(buffer);
         retained += buffer.length;
+    }
+
+    synchronized void trim() {
+        retainedLimit = PRESSURE_RETAINED_BYTES;
+        while (retained > retainedLimit) retained -= free.remove(0).length;
     }
 
     synchronized void clear() { free.clear(); retained = 0; }

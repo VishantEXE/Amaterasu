@@ -61,6 +61,20 @@ public final class HostChecks {
         byte[] gameplay=new byte[200000]; pool.release(gameplay);
         require(pool.acquire(190000)==gameplay,"Tiny menu buffers prevented gameplay buffer reuse");
         pool.clear();
+        pool.release(new byte[800000]);
+        pool.release(new byte[200000]);
+        pool.trim();
+        require(pool.retainedBytes()==200000,"Pressure trim did not release the large cached buffer");
+        pool.release(new byte[800000]);
+        require(pool.retainedBytes()==200000,"Large buffers were cached again under pressure");
+        SessionState.attach(stage -> {});
+        long pressureOwner=SessionState.epoch();
+        SessionState.noteMemoryPressure();
+        require(SessionState.hasMemoryPressure(pressureOwner),"Active session missed the pressure warning");
+        SessionState.detach();
+        SessionState.attach(stage -> {});
+        require(!SessionState.hasMemoryPressure(SessionState.epoch()),"Pressure warning leaked into a new session");
+        SessionState.detach();
 
         // Reassemble actual data shards across frame/header, FEC-block and large-frame boundaries.
         for(int length:new int[]{1,1336,1337,1344,3000,284921,1300000}) {

@@ -55,8 +55,12 @@ final class LiveCapture implements AutoCloseable {
     private volatile IOException videoFailure;
     private byte[] config = new byte[0];
     private long lastKeyframeRequest;
-    private int activeBitrate;
+    private volatile int activeBitrate;
+    private volatile long encodedFrames;
+    int activeBitrate() { return activeBitrate; }
+    long encodedFrames() { return encodedFrames; }
     private boolean recovering;
+    private final long memoryEpoch = SessionState.epoch();
 
     static final class Frame {
         final byte[] annexB;
@@ -132,11 +136,17 @@ final class LiveCapture implements AutoCloseable {
 
     private void captureVideo() {
         long id = 0;
+        boolean memoryTrimmed = false;
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY);
         try {
             configureVideo();
             initialized.countDown();
             while (!stopped) {
+                if (!memoryTrimmed && SessionState.hasMemoryPressure(memoryEpoch)) {
+                    buffers.trim();
+                    memoryTrimmed = true;
+                    Log.i(TAG, "Reduced the retained video buffer budget after Android memory pressure");
+                }
                 if (keyframeRequested.getAndSet(false)) updateKeyframe();
                 if (bitrateReductionRequested.getAndSet(false)) updateBitrate();
                 Frame frame = dequeueVideo(++id);
@@ -146,6 +156,7 @@ final class LiveCapture implements AutoCloseable {
                     java.util.concurrent.locks.LockSupport.parkNanos(500_000L);
                     continue;
                 }
+                encodedFrames++;
                 diagnostics.frame("encoded", frame.id, frame.ptsUs, frame.size, frame.keyframe ? 1 : 0);
                 if (recovering && !frame.keyframe) {
                     videoQueueDrops.incrementAndGet();
@@ -200,7 +211,7 @@ final class LiveCapture implements AutoCloseable {
         int index = encoder.dequeueOutputBuffer(info, 0);
         if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
             MediaFormat format = encoder.getOutputFormat();
-            config = concat(copy(format.getByteBuffer("csd-0")), copy(format.getByteBuffer("csd-1")));
+            setCodecConfig(concat(copy(format.getByteBuffer("csd-0")), copy(format.getByteBuffer("csd-1"))));
             return null;
         }
         if (index < 0) return null;
@@ -210,11 +221,17 @@ final class LiveCapture implements AutoCloseable {
             data.position(info.offset);
             data.limit(info.offset + info.size);
             if ((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
-                config = copy(data);
+                setCodecConfig(copy(data));
                 return null;
             }
             boolean keyframe = (info.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0;
-            int prefix = keyframe && annexB(config) ? config.length : 0;
+            boolean av1 = StreamSettings.AV1_MIME.equals(profile.mime);
+            int insertion = av1 ? Av1Obu.headerInsertion(data, keyframe)
+                    : keyframe && annexB(config) ? info.offset : -1;
+            if (av1 && insertion >= 0 && config.length == 0) {
+                throw new IOException("AV1 keyframe is missing its sequence header");
+            }
+            int prefix = insertion >= 0 ? config.length : 0;
             if (info.size > maxFrameBytes - prefix) {
                 oversizedFrames.incrementAndGet();
                 diagnostics.frame("oversize_drop", id, info.presentationTimeUs, info.size, maxFrameBytes);
@@ -223,18 +240,29 @@ final class LiveCapture implements AutoCloseable {
                 keyframeRequested.set(true);
                 return null;
             }
-            if (info.size <= 4 || data.get(info.offset) != 0 || data.get(info.offset + 1) != 0
+            if (!av1 && (info.size <= 4 || data.get(info.offset) != 0 || data.get(info.offset + 1) != 0
                     || (data.get(info.offset + 2) != 1
-                    && (data.get(info.offset + 2) != 0 || data.get(info.offset + 3) != 1))) {
+                    && (data.get(info.offset + 2) != 0 || data.get(info.offset + 3) != 1)))) {
                 throw new IOException("Unexpected MediaCodec access unit framing");
             }
             int size = prefix + info.size;
             byte[] payload = buffers.acquire(size);
-            if (prefix != 0) System.arraycopy(config, 0, payload, 0, prefix);
-            data.get(payload, prefix, info.size);
+            int leading = prefix == 0 ? 0 : insertion - info.offset;
+            if (leading != 0) data.get(payload, 0, leading);
+            if (prefix != 0) System.arraycopy(config, 0, payload, leading, prefix);
+            data.get(payload, leading + prefix, info.size - leading);
             return new Frame(payload, size, info.presentationTimeUs, keyframe, id);
         } finally {
             encoder.releaseOutputBuffer(index, false);
+        }
+    }
+
+    private void setCodecConfig(byte[] bytes) throws IOException {
+        if (StreamSettings.AV1_MIME.equals(profile.mime)) {
+            byte[] sequence = Av1Obu.sequenceHeader(bytes);
+            if (sequence.length != 0) config = sequence;
+        } else {
+            config = bytes;
         }
     }
 

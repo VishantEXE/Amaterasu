@@ -24,10 +24,11 @@ import java.security.GeneralSecurityException;
 
 public final class HostActivity extends Activity {
     private static final String TAG="QuestHeldHost";
-    private static final int CAPTURE_CONSENT=1, AUDIO_PERMISSION=2, NOTIFICATIONS_PERMISSION=3, HOTSPOT_PERMISSION=4;
+    private static final int CAPTURE_CONSENT=1, AUDIO_PERMISSION=2, NOTIFICATIONS_PERMISSION=3;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private HostUi ui;
     private HostEndpoint fixture;
+    private HostPanels.Panel panel;
     private String hostAddress;
     private String error;
     private boolean consentPending, startPending, resumed, idleAttempted;
@@ -58,12 +59,16 @@ public final class HostActivity extends Activity {
             public void pair(String pin){ submitPin(pin); }
             public void copyAddress(){ copyHostAddress(); }
             public void connectionModeChanged(){ updateConnection(); }
-            public void hotspot(boolean start){ if(start) startHotspot(); else { DirectHotspot.get(HostActivity.this).stop(); updateConnection(); } }
             public void hotspotSettings(){
                 if(LiveHostService.activePairing!=null) return;
-                DirectHotspot.get(HostActivity.this).stop(); closeFixture();
-                openSettings(new Intent(Settings.ACTION_WIRELESS_SETTINGS));
+                Intent tethering=new Intent("android.settings.TETHER_SETTINGS");
+                try { startActivity(tethering); }
+                catch(android.content.ActivityNotFoundException | SecurityException e) {
+                    openSettings(new Intent(Settings.ACTION_WIRELESS_SETTINGS));
+                }
             }
+            public void liveStats(){ showStats(); }
+            public boolean supportsAv1(StreamSettings settings){ return settings.supports(StreamSettings.AV1); }
             public void dimPermission(){
                 if(!Settings.System.canWrite(HostActivity.this)) openSettings(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,Uri.parse("package:"+getPackageName())));
             }
@@ -81,7 +86,11 @@ public final class HostActivity extends Activity {
     private void startSharing() {
         if(consentPending || startPending || LiveHostService.activePairing!=null) return;
         error=null;
-        if(selectedAddress()==null) { error="Connect Wi-Fi or start a hotspot in Connection first."; refreshState(); return; }
+        if(selectedAddress()==null) {
+            error=ui.directHotspot()?"Turn on the Wi-Fi hotspot in Android settings first."
+                    :"Connect both devices to the same Wi-Fi network first.";
+            refreshState(); return;
+        }
         if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED
                 && !getPreferences(MODE_PRIVATE).getBoolean("notificationsAsked",false)) {
             getPreferences(MODE_PRIVATE).edit().putBoolean("notificationsAsked",true).apply();
@@ -90,9 +99,10 @@ public final class HostActivity extends Activity {
         if(getPreferences(MODE_PRIVATE).getBoolean("dimHost",false) && !Settings.System.canWrite(this)) Toast.makeText(this,"Dimming is inactive. Use Allow brightness control before your next stream.",Toast.LENGTH_LONG).show();
         try {
             StreamSettings selected=ui.settings();
-            boolean hevcAvailable=selected.supportsHevc();
-            selected.profile(hevcAvailable?1:0,0);
-            if(selected.hevc && !hevcAvailable) Toast.makeText(this,"HEVC is unavailable for this mode. H.264 will be used.",Toast.LENGTH_LONG).show();
+            int available=selected.preferredAvailableCodec();
+            selected.profile(available,0);
+            if(selected.codec!=available) Toast.makeText(this,StreamSettings.codecName(selected.codec)
+                    +" is unavailable for this mode. "+StreamSettings.codecName(available)+" will be used.",Toast.LENGTH_LONG).show();
         } catch(IOException e) { error=e.getMessage(); refreshState(); return; }
         consentPending=true;
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) requestCapture();
@@ -109,11 +119,6 @@ public final class HostActivity extends Activity {
     @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results) {
         super.onRequestPermissionsResult(code,permissions,results);
         if(code==NOTIFICATIONS_PERMISSION) { if(results.length==0 || results[0]!=PackageManager.PERMISSION_GRANTED) Toast.makeText(this,"Notifications are disabled. Stop sharing from Amaterasu or Android’s active-app controls.",Toast.LENGTH_LONG).show(); startSharing(); return; }
-        if(code==HOTSPOT_PERMISSION) {
-            if(results.length>0 && results[0]==PackageManager.PERMISSION_GRANTED && ui.directHotspot() && LiveHostService.activePairing==null) DirectHotspot.get(this).start();
-            else Toast.makeText(this,"Wi-Fi permission denied. You can use Android hotspot settings instead.",Toast.LENGTH_LONG).show();
-            return;
-        }
         if(code==AUDIO_PERMISSION) {
             if(results.length==0 || results[0]!=PackageManager.PERMISSION_GRANTED) Toast.makeText(this,"Audio permission was not granted. You can still share your screen.",Toast.LENGTH_LONG).show();
             requestCapture();
@@ -152,6 +157,24 @@ public final class HostActivity extends Activity {
         getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Amaterasu host",hostAddress));
         if(Build.VERSION.SDK_INT<33) Toast.makeText(this,"Host address copied",Toast.LENGTH_SHORT).show();
     }
+    private void showStats() {
+        if(LiveHostService.activePairing==null) return;
+        dismissPanel();
+        panel=new HostPanels.Panel(this,"Live stream stats",statsText());
+        panel.dialog.show();
+    }
+    private void dismissPanel() {
+        if(panel!=null) panel.dialog.dismiss();
+        panel=null;
+    }
+    private String statsText() {
+        LiveStats stats=SessionState.stats();
+        if(!LiveHostService.streamingConfirmed) return "Launch Screen in your client to see live stats.";
+        if(stats==null) return "Measuring the first frames…";
+        if(SystemClock.elapsedRealtime()-stats.sampledAtMs>5000)
+            return "Waiting for new stream data.\n\nLast sample\n"+stats.summary();
+        return stats.summary();
+    }
     private void ensureFixture() {
         if(fixture!=null || idleAttempted || consentPending || startPending || LiveHostService.activePairing!=null) return;
         idleAttempted=true;
@@ -167,7 +190,20 @@ public final class HostActivity extends Activity {
         if(ui==null) return;
         ui.setDimmingPermission(Settings.System.canWrite(this));
         updateConnection();
-        ui.connectionDetail(ui.directHotspot()?(hostAddress!=null && !DirectHotspot.get(this).owned()?"System hotspot interface detected · credentials are in Android settings":DirectHotspot.get(this).summary(ui.revealPassword()))+"\n"+DirectHotspot.get(this).bandNote():"Both devices on the same Wi-Fi LAN. No internet required.",LiveHostService.sessionStatus);
+        Pairing pairing=fixture!=null?fixture.pairing:LiveHostService.activePairing;
+        ui.connectionDetail(ui.directHotspot()?(hostAddress!=null
+                ?"Android hotspot detected. Find the Wi-Fi name and password in Android settings."
+                :"Turn on the Wi-Fi hotspot in Android settings.")
+                :"Both devices on the same Wi-Fi LAN. No internet required.",LiveHostService.sessionStatus);
+        ui.connectionSetup(hostAddress,pairing==null?"Pairing unavailable":pairing.status());
+        if(panel!=null) {
+            if(!panel.dialog.isShowing() || LiveHostService.activePairing==null) {
+                dismissPanel();
+            } else {
+                String text=statsText();
+                if(!text.contentEquals(panel.detail.getText())) panel.detail.setText(text);
+            }
+        }
         if(LiveHostService.activePairing!=null) {
             startPending=false; error=null; ui.setState(HostUi.State.SHARING,hostAddress,null,LiveHostService.activeSettings); ui.mediaStatus(LiveHostService.streamingConfirmed);
         } else if(startPending && SystemClock.elapsedRealtime()<startDeadline) {
@@ -183,17 +219,10 @@ public final class HostActivity extends Activity {
     }
     private void updateConnection() {
         if(ui==null || consentPending || startPending || LiveHostService.activePairing!=null) return;
-        if(!ui.directHotspot() && DirectHotspot.get(this).owned()) DirectHotspot.get(this).stop();
         Inet4Address address=selectedAddress();
         String next=address==null?null:address.getHostAddress();
         if(!java.util.Objects.equals(next,hostAddress)) { closeFixture(); hostAddress=next; error=null; }
         if(resumed) ensureFixture();
-    }
-    private void startHotspot() {
-        if(LiveHostService.activePairing!=null || !ui.directHotspot()) return;
-        String permission=Build.VERSION.SDK_INT>=33?Manifest.permission.NEARBY_WIFI_DEVICES:Manifest.permission.ACCESS_FINE_LOCATION;
-        if(checkSelfPermission(permission)!=PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{permission},HOTSPOT_PERMISSION);
-        else DirectHotspot.get(this).start();
     }
     private void openSettings(Intent intent) {
         try { startActivity(intent); }
@@ -207,12 +236,8 @@ public final class HostActivity extends Activity {
         super.onStart(); idleAttempted=false; Inet4Address address=selectedAddress(); hostAddress=address==null?null:address.getHostAddress();
     }
     @Override protected void onResume() { super.onResume(); if(LiveHostService.activePairing==null && !startPending) new HostOverrides(this).restoreAll(); resumed=true; handler.removeCallbacks(refresh); handler.post(refresh); }
-    @Override protected void onPause() { resumed=false; handler.removeCallbacksAndMessages(null); super.onPause(); }
+    @Override protected void onPause() { resumed=false; handler.removeCallbacksAndMessages(null); dismissPanel(); super.onPause(); }
     @Override protected void onStop() { closeFixture(); super.onStop(); }
-    @Override protected void onDestroy() {
-        if(isFinishing() && !startPending && LiveHostService.activePairing==null) DirectHotspot.get(this).stop();
-        super.onDestroy();
-    }
     private void closeFixture() { if(fixture!=null) { fixture.close(); fixture=null; } idleAttempted=false; }
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putBoolean("liveRequested",startPending); state.putBoolean("consentPending",consentPending); super.onSaveInstanceState(state);

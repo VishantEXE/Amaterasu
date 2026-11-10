@@ -2,9 +2,11 @@
 
 Your screen, anywhere.
 
-Amaterasu is an Android streaming host for compatible Moonlight clients. Share your Android screen and device audio over local Wi-Fi or a mobile hotspot, with optional host-side FSR upscaling.
+Amaterasu streams your Android screen and device audio to compatible Moonlight or Artemis clients over Wi-Fi or a hotspot. Bring games, lessons, or presentations to a bigger screen, even offline. Vibe coded with Codex, for the people.
 
-![Amaterasu dark theme, landscape UI preview](docs/images/amaterasu-landscape-dark.png)
+[Download Amaterasu v0.6.7 (experimental prerelease)](https://github.com/VishantEXE/Amaterasu/releases/tag/v0.6.7)
+
+![Amaterasu light theme, landscape UI preview](docs/images/amaterasu-landscape-light.png)
 
 ## Connect a device
 
@@ -16,11 +18,17 @@ Amaterasu is an Android streaming host for compatible Moonlight clients. Share y
 
 Tap **Stop sharing** in Amaterasu or its notification to end a session. Stop sharing before changing stream settings. Android device audio capture works with apps that allow playback capture.
 
+In **Connection**, select **Direct Wi-Fi Hotspot** to use the host device’s hotspot. Tap **Android hotspot settings** to turn it on, choose 5 GHz if available, and find its Wi-Fi name and password. Turn off automatic hotspot shutdown for long sessions. Join that network from the receiver, then use the displayed host address if discovery fails. Select **Existing Wi-Fi LAN** when both devices join an external hotspot.
+
+Open **Live stats** while sharing to see host encoder and sender FPS, video payload bitrate, the current encoder target, and recent drops. The protected panel stays on the host. The reported rates describe the host, while receiver playback statistics are available in the client.
+
+Amaterasu remembers multiple paired clients and keeps its host identity across networks. If the IP address changes and discovery misses it, add the new address in the client. Moonlight XR can match it to the existing host entry.
+
 ## Stream settings
 
 | Setting | Options |
 | --- | --- |
-| Video | Hardware H.264 or HEVC, where supported |
+| Video | Hardware H.264, HEVC, or experimental AV1, where supported |
 | Frame rate | 60 FPS default; optional 120 FPS (Experimental) |
 | Bitrate limit | 10–200 Mbps; client and hardware limits also apply |
 | FSR off | Native 1920×1080 |
@@ -40,10 +48,10 @@ Build instructions and pinned dependencies are in [tools/host-discovery/README.m
 
 See [validation and known limitations](docs/VALIDATION.md) and [third-party notices](THIRD_PARTY_NOTICES).
 
-## Version 0.6.1 — experimental
+## Version 0.6.7 — experimental
 
-Supports local Wi-Fi and public Android local-only hotspot setup, optional host-media mute, opt-in screen dimming with saved-state recovery, session diagnostics and in-app license notices. Dimming requires Android's modify-system-settings permission. If host audio remains audible, set host media volume to zero; captured stream audio can continue.
+Supports local Wi-Fi and Android system hotspot setup, optional host-media mute, opt-in screen dimming with saved-state recovery, session diagnostics and in-app license notices. Dimming requires Android's modify-system-settings permission. If host audio remains audible, set host media volume to zero; captured stream audio can continue.
 
-Start with 1080p at 60 FPS and a modest bitrate. Heavy games with 4K FSR have triggered Android LOW_MEMORY termination of the host. This remains unresolved. 120 FPS and higher resolutions depend on encoder, client, network and source performance.
+Start at 1080p/60 with a modest bitrate. The Odin’s 5 GHz hotspot performed better than 2.4 GHz in the tested setup. Android can still terminate the foreground host under memory pressure, including in the v0.6.7 4K FSR retest. AV1 is hardware-only and live AV1 playback still needs validation on a compatible Android host.
 
-Amaterasu's own source and supplied app artwork are licensed under [GPL-3.0-only](LICENSE). Bundled components retain the licenses and notices in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). Provide matching corresponding source, including pinned dependency sources, when distributing binaries. This repository contains source, not a production-signed APK release.
+Amaterasu's own source and supplied app artwork are licensed under [GPL-3.0-only](LICENSE). Bundled components retain the licenses and notices in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). Release assets include a development-signed arm64 APK, corresponding source, and checksums.

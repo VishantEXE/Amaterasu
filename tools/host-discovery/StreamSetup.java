@@ -193,15 +193,19 @@ final class StreamSetup implements AutoCloseable {
         }
         if (current.step == 1 && "DESCRIBE".equals(method)) {
             current.step++;
+            boolean av1 = projection != null && settings.supports(StreamSettings.AV1);
             String sdp = "v=0\r\ns=QuestHeld\r\nt=0 0\r\n"
                     + "a=x-ss-general.featureFlags:0\r\n"
                     + "a=x-ss-general.encryptionSupported:" + ENCRYPTION_FLAGS + "\r\n"
                     + "a=x-ss-general.encryptionRequested:" + ENCRYPTION_FLAGS + "\r\n"
                     + "m=audio 0 RTP/AVP 97\r\na=rtpmap:97 opus/48000/2\r\n"
-                    + "m=video 0 RTP/AVP 96\r\na=rtpmap:96 H264/90000\r\n";
-            if (projection != null && settings.supportsHevc()) {
+                    + "m=video 0 RTP/AVP 96" + (av1 ? " 98" : "") + "\r\na=rtpmap:96 H264/90000\r\n";
+            if (projection != null && settings.supports(StreamSettings.HEVC)) {
                 // Moonlight detects the HEVC capability from this GameStream SDP marker.
                 sdp += "sprop-parameter-sets=AAAAAU\r\n";
+            }
+            if (av1) {
+                sdp += "a=rtpmap:98 AV1/90000\r\n";
             }
             return response("200 OK", cseq, "Content-Type: application/sdp\r\n", sdp);
         }

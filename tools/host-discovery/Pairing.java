@@ -14,7 +14,10 @@ import java.security.Signature;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -25,7 +28,7 @@ final class Pairing {
     private final HostIdentity identity;
     private final SecureRandom random = new SecureRandom();
     private Session session;
-    private X509Certificate trusted;
+    private final Set<X509Certificate> trusted = new HashSet<>();
     private boolean closed;
 
     private static final class Session {
@@ -51,8 +54,18 @@ final class Pairing {
     Pairing(SharedPreferences prefs, HostIdentity identity) throws GeneralSecurityException {
         this.prefs = prefs;
         this.identity = identity;
-        String stored = prefs.getString("peer", null);
-        if (stored != null) trusted = certificate(Base64.decode(stored, Base64.DEFAULT));
+        for (String stored : prefs.getStringSet("pairedClients", Collections.emptySet())) {
+            trusted.add(certificate(Base64.decode(stored, Base64.DEFAULT)));
+        }
+        String legacy = prefs.getString("peer", null);
+        if (legacy != null) trusted.add(certificate(Base64.decode(legacy, Base64.DEFAULT)));
+    }
+
+    synchronized String status() {
+        if(session!=null && session.expires>SystemClock.elapsedRealtime())
+            return session.key==null?"Pairing · enter the PIN":"Pairing · finishing connection";
+        if (trusted.isEmpty()) return "No paired device";
+        return trusted.size()==1?"Paired device saved":trusted.size()+" paired devices saved";
     }
 
     synchronized boolean enterPin(String pin) throws GeneralSecurityException {
@@ -139,10 +152,15 @@ final class Pairing {
             throws GeneralSecurityException {
         expire();
         if (matches(address, id) && session.verified && session.client.equals(peer)) {
-            if (!prefs.edit().putString("peer", Base64.encodeToString(peer.getEncoded(), Base64.NO_WRAP)).commit()) {
+            Set<String> saved = new HashSet<>();
+            for (X509Certificate certificate : trusted) {
+                saved.add(Base64.encodeToString(certificate.getEncoded(), Base64.NO_WRAP));
+            }
+            saved.add(Base64.encodeToString(peer.getEncoded(), Base64.NO_WRAP));
+            if (!prefs.edit().putStringSet("pairedClients", saved).remove("peer").commit()) {
                 return reject();
             }
-            trusted = peer;
+            trusted.add(peer);
             Log.i("QuestHeldHost", "Client paired over mutual TLS");
             clear();
         }
@@ -155,7 +173,7 @@ final class Pairing {
     }
 
     synchronized boolean isTrusted(X509Certificate peer) {
-        return !closed && trusted != null && trusted.equals(peer);
+        return !closed && trusted.contains(peer);
     }
 
     synchronized void cancel(InetAddress address, String id) {

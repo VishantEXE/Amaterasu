@@ -106,9 +106,8 @@ foreach ($duration in 5, 10) {
 }
 
 $manifest = Join-Path $PSScriptRoot 'AndroidManifest.xml'
-$apkName = 'Amaterasu-0.6.1.apk'
+$apkName = 'Amaterasu-0.6.7.apk'
 if ($SideBySide) {
     $manifest = Join-Path $PSScriptRoot 'AndroidManifest.pacing.xml'
-    $apkName = 'Amaterasu-0.6.1.apk'
 }
 & (Join-Path $PSScriptRoot '../capture-probe/build.ps1') -Sdk $Sdk -Jdk $Jdk -Source $PSScriptRoot -Output $out -Assets $assets -NativeLibraryRoot $out -ApkName $apkName -Manifest $manifest -ResourcesRoot (Join-Path $PSScriptRoot 'res')
