@@ -4,10 +4,16 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 public final class HostChecks {
+    private static void rejectMode(StreamSettings host, int width, int height, int fps) {
+        try {
+            host.forClient(width, height, fps);
+            throw new AssertionError("Invalid client mode accepted: " + width + "x" + height + "@" + fps);
+        } catch (java.io.IOException expected) { }
+    }
     private static void require(boolean value, String message) {
         if (!value) throw new AssertionError(message);
     }
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         int[] activations={0};
         SessionState.attach(stage->{ if(stage==SessionState.Stage.STREAMING) activations[0]++; });
         long old=SessionState.epoch();
@@ -45,6 +51,30 @@ public final class HostChecks {
         StreamSettings disabled = new StreamSettings(false, 2, true, 100, 60);
         require(disabled.outputWidth()==1920 && disabled.captureHeight()==1080, "FSR-off must remain native 1080p");
         require(new StreamSettings(true,0,false,20).captureWidth()==1280, "720p mode changed");
+
+        // Moonlight's viewport/FPS are preferences, not a transport incompatibility.
+        StreamSettings host = new StreamSettings(false,0,false,20,60);
+        StreamSettings client720 = host.forClient(1280,720,30);
+        require(client720.outputWidth()==1280 && client720.outputHeight()==720 && client720.fps==30,
+                "Client 720p30 mode was not propagated to encoder settings");
+        require(client720.captureWidth()==1280 && client720.captureHeight()==720,
+                "Pass-through capture does not match negotiated output");
+        require(host.outputWidth()==1920 && host.fps==60, "Negotiation changed saved host settings");
+        require(host.forClient(1920,1080,59).fps==59, "Client refresh rate was rounded to 60");
+        require(host.forClient(1920,1080,60).outputWidth()==1920, "Matching mode regressed");
+        StreamSettings smallerFsr = old4k.forClient(2560,1440,60);
+        require(smallerFsr.captureWidth()==1920 && smallerFsr.captureHeight()==1080,
+                "Negotiated FSR capture ratio changed");
+        StreamSettings native720 = old4k.forClient(1280,720,30);
+        require(native720.captureWidth()==1280 && native720.captureHeight()==720,
+                "FSR capture exceeds client output");
+        StreamSettings wide = old4k.forClient(2560,1080,60);
+        require(wide.captureWidth()==2560 && wide.captureHeight()==1080,
+                "Non-16:9 client mode was stretched by capture sizing");
+        rejectMode(host,3840,2160,60); rejectMode(host,1920,1080,120);
+        rejectMode(host,0,1080,60); rejectMode(host,1920,1080,0);
+        rejectMode(host,1279,720,30); rejectMode(host,1280,719,30);
+        rejectMode(host,-1,-1,-1); rejectMode(host,Integer.MAX_VALUE,1080,60);
 
         VideoBufferPool pool = new VideoBufferPool();
         byte[] first=pool.acquire(100000), owned=pool.acquire(100000);

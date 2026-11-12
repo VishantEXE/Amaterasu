@@ -62,6 +62,7 @@ final class StreamSetup implements AutoCloseable {
         int audioMs;
         FixtureMedia media;
         StreamSettings.EncodingProfile profile;
+        StreamSettings negotiatedSettings;
 
         Session(InetAddress peer, byte[] key, int keyId) {
             this.peer = peer;
@@ -250,7 +251,7 @@ final class StreamSetup implements AutoCloseable {
             int expectedFps = projection == null ? 60 : settings.fps;
             if (current.packetSize < 256 || current.packetSize > 1392
                     || (current.audioMs != 5 && current.audioMs != 10) || channels != 2
-                    || width != expectedWidth || height != expectedHeight || fps != expectedFps
+                    || (projection == null && (width != expectedWidth || height != expectedHeight || fps != expectedFps))
                     || (projection == null && format != 0)) {
                 session = null;
                 Log.i(TAG, "Host requires " + expectedWidth + "x" + expectedHeight
@@ -264,7 +265,8 @@ final class StreamSetup implements AutoCloseable {
                 int clientBitrate = attribute(sdp, "x-ml-video.configuredBitrateKbps");
                 if (clientBitrate <= 0) clientBitrate = attribute(sdp, "x-nv-vqos[0].bw.maximumBitrateKbps");
                 try {
-                    current.profile = settings.profile(format, clientBitrate);
+                    current.negotiatedSettings = settings.forClient(width, height, fps);
+                    current.profile = current.negotiatedSettings.profile(format, clientBitrate);
                     Log.i(TAG, "Negotiated " + current.profile);
                 } catch (IOException e) {
                     session = null;
@@ -280,7 +282,8 @@ final class StreamSetup implements AutoCloseable {
             try {
                 current.media = new FixtureMedia(assets, address, current.peer, current.key,
                         current.keyId, current.connectData, current.videoPing, current.audioPing,
-                        current.packetSize, current.audioMs, projection, settings, current.profile,
+                        current.packetSize, current.audioMs, projection,
+                        projection == null ? settings : current.negotiatedSettings, current.profile,
                         diagnosticsDirectory, () -> finish(current));
                 liveUsed = projection != null;
                 current.step++;

@@ -19,6 +19,8 @@ final class StreamSettings {
     final int codec;
     final int bitrateMbps;
     final int fps;
+    private final int negotiatedWidth;
+    private final int negotiatedHeight;
 
     StreamSettings(boolean fsr, int scale, boolean hevc, int bitrateMbps) {
         this(fsr, scale, hevc, bitrateMbps, FPS);
@@ -29,11 +31,23 @@ final class StreamSettings {
     }
 
     StreamSettings(boolean fsr, int scale, int codec, int bitrateMbps, int fps) {
+        this(fsr, scale, codec, bitrateMbps, fps == 120 ? 120 : FPS, 0, 0);
+    }
+
+    private StreamSettings(boolean fsr, int scale, int codec, int bitrateMbps, int fps,
+                           int negotiatedWidth, int negotiatedHeight) {
         this.fsr = fsr;
         this.scale = scale == SCALE_1080_TO_4K || scale == SCALE_1080_TO_1440 ? scale : SCALE_720_TO_1080;
         this.codec = codec == HEVC || codec == AV1 ? codec : H264;
         this.bitrateMbps = Math.max(10, Math.min(200, bitrateMbps));
-        this.fps = fps == 120 ? 120 : FPS;
+        this.fps = fps;
+        this.negotiatedWidth = negotiatedWidth;
+        this.negotiatedHeight = negotiatedHeight;
+    }
+
+    StreamSettings forClient(int width, int height, int clientFps) throws IOException {
+        StreamMode.validate(width, height, clientFps, outputWidth(), outputHeight(), fps);
+        return new StreamSettings(fsr, scale, codec, bitrateMbps, clientFps, width, height);
     }
 
     static StreamSettings fixture() {
@@ -53,22 +67,24 @@ final class StreamSettings {
     }
 
     int outputWidth() {
+        if (negotiatedWidth != 0) return negotiatedWidth;
         if (fsr && scale == SCALE_1080_TO_1440) return 2560;
         return fsr && scale == SCALE_1080_TO_4K ? 3840 : 1920;
     }
 
     int outputHeight() {
+        if (negotiatedHeight != 0) return negotiatedHeight;
         return outputWidth() == 3840 ? 2160 : outputWidth() == 2560 ? 1440 : 1080;
     }
 
     int captureWidth() {
-        if (!fsr) return outputWidth();
-        return scale == SCALE_1080_TO_4K || scale == SCALE_1080_TO_1440 ? 1920 : 1280;
+        return outputWidth() * captureHeight() / outputHeight() / 2 * 2;
     }
 
     int captureHeight() {
         if (!fsr) return outputHeight();
-        return scale == SCALE_1080_TO_4K || scale == SCALE_1080_TO_1440 ? 1080 : 720;
+        int sourceHeight = scale == SCALE_1080_TO_4K || scale == SCALE_1080_TO_1440 ? 1080 : 720;
+        return Math.min(sourceHeight, outputHeight());
     }
 
     EncodingProfile profile(int codecFormat, int clientBitrateKbps) throws IOException {
